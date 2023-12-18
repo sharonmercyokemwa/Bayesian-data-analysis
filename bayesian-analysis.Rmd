@@ -1,0 +1,134 @@
+---
+title: "Bayesian data analysis"
+author: "SHARON"
+date: "2023-12-18"
+output: github_document
+---
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+Data collected from North Carolina counties uploaded on canvas, in Files, titled Obama2012. The data contain many variables, such as percent of vote Obama received in each county, population size in 2010, population per square miles, percent of white people, …. etc
+
+```{r}
+##importing the Obama2012 data set to R 
+library(readxl)
+G<- data.frame(read_excel("C:/Users/PC/Desktop/Obama 2012.xls"))
+head(G)
+```
+
+Use percent of vote (PCTOBAMA) as the response variable and use PctWhite ($x_1$), Pct_unemployed ($x_2$), PctBlack ($x_3$), DiversityIndex ($x_4$),, and PctAsian ($x_5$), as the explanatory variables. The objective of this analysis is to build a predictive model, i.e. estimate the multiple linear regression equation. 
+```{r}
+##Defining variables
+##Response variable
+obama<-G$PCTOBAMA
+##Explanatory variables
+white<-G$PctWhite
+black<-G$PctBlack
+asian<-G$PctAsian
+diversity<-G$DiversityIndex
+unemployed<-G$Pct_unemployed
+
+```
+
+Let $y_i$ is the percent of votes that selected Obama in county $i=1,2,\ldots,n$. 
+The model:   
+$y_i |\beta,\sigma^2 \sim Noraml(\beta_0+\beta_1 x_{1i}+\beta_2 x_{2i}+\beta_3 x_{3i}+\beta_4 x_{4i}+\beta_5 x_{5i},\sigma^2)$.
+
+The priors:  
+$\beta_j \sim Normal(0,100^2),i=0,1,2,3,4,5$,         and $\sigma^2 \sim Normal(0.01,0.01)$ 
+
+* Summarizing the data numerically and graphically.
+```{r}
+summary(G)##numeric summary of all variables in the data frame
+correlation <- cor(G)##calculating the correlation matrix for the variables in the data set
+round(correlation, 2)##rounding the correlation coefficient to 2 dp.
+hist(obama, xlab = "pctobama", ylab = "Frequency", col = "steelblue", main = "Histogram for pctobama")##histogram showing distribution of the outcome variable(percent votes for Obama)
+plot(G)##plotting the scatter plots for the variables in the data sets to observe the correlation, strength and direction of the relationship
+```
+
+
+* Fit the model using the Bayesian approach.
+```{r}
+##recalling the (r jags) package for data analysis
+library(rjags)
+n <- length(obama)
+n
+
+multiple_linear_model = "model{
+    #likelihood function- data distribution
+    for(i in 1:n) {
+      obama[i]  ~ dnorm(mu[i], tau2)
+      mu[i]<- beta[1] + beta[2]*white[i] + beta[3]*black[i]+ beta[4]* asian[i]+ beta[5]*diversity[i]+ beta[6]*unemployed[i]
+    }
+
+    #prior for beta
+    for(j in 1:6){
+      beta[j] ~dnorm(0, 0.0001)
+    }
+
+    #prior for the inverse variance
+    tau2 ~ dgamma(0.01, 0.01)
+    sigma2  <- 1/tau2
+    }"
+
+##compile the model in JAGS
+linear_model <- jags.model(textConnection(multiple_linear_model),
+                              n.chains = 3,
+                              data= list(obama=obama, n=n, white=white, black=black, asian=asian, diversity=diversity, unemployed=unemployed))
+
+##Draw samples
+update(linear_model, 10000, progress.bar = "none"); ##burn-in for 10000 samples
+samples<- coda.samples(linear_model,
+              variable.names=c("beta", "sigma2"),
+                n.iter=30000, progress.bar="none")
+summary(samples)
+dev.new()
+par(mar = c(3, 3, 2, 2))
+plot(samples)
+```
+
+*	Check convergence of all the parameters
+````{r}
+##convergence diagnostics
+dev.new()
+par(mar = c(3, 3, 2, 2))
+autocorr.plot(samples)
+effectiveSize(samples)
+gelman.plot(samples)
+```
+*	Find the best regression model that has only the significant variables based on the Bayesian approach. So, if you see any insignificant explanatory variables, remove them, and re-estimate the regression equation. 
+
+```{r}
+
+##after running the regression model the variable pctblack did not have no effect on the outcome(pctobama) 95% credible set(-0.09 - 0.37) and will therefore be excluded in the final regression model
+
+Final_linear_model = "model{
+    #likelihood function- data distribution
+    for(i in 1:n) {
+      obama[i]  ~ dnorm(mu[i], tau2)
+      mu[i]<- beta[1] + beta[2]*white[i] + beta[3]* asian[i]+ beta[4]*diversity[i]+ beta[5]*unemployed[i]
+    }
+
+    #prior for beta
+    for(j in 1:5){
+      beta[j] ~dnorm(0, 0.0001)
+    }
+
+    #prior for the inverse variance
+    tau2 ~ dgamma(0.01, 0.01)
+    sigma2  <- 1/tau2
+    }"
+
+##compile the model in JAGS
+linear_model2 <- jags.model(textConnection(Final_linear_model),
+                              n.chains = 5,
+                              data= list(obama=obama, n=n, white=white, asian=asian, diversity=diversity, unemployed=unemployed))
+##Draw samples
+update(linear_model2, 20000, progress.bar = "none"); ##burn-in for 20000 samples
+samples<- coda.samples(linear_model2,
+              variable.names=c("beta", "sigma2"),
+                n.iter=50000, progress.bar="none")
+summary(samples)
+```
+
+```{r}
